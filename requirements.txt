@@ -1,3 +1,4 @@
 librosa
 aubio
 numpy
+scipy
