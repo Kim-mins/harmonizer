@@ -1,8 +1,8 @@
 import numpy as np
 import aubio
 import librosa
-import config
-#import soundfile as sf
+from config import note2freq, freq2note, minor_triad, major_triad
+# import soundfile as sf
 
 from pitch_shift import shift_pitch
 
@@ -10,11 +10,11 @@ from pitch_shift import shift_pitch
 def round_note(freq):
   # round_note: get the nearest note (=rounded note) from dominant frequency (estimated frequency from pitch detection)
   if freq != 0.0:
-    fs = list(config.freq2note.keys())
+    fs = list(freq2note.keys())
     fs_sub = list(map(lambda f: abs(freq - float(f)), fs))
     _, min_idx = min(((val, idx) for (idx, val) in enumerate(fs_sub)))
     # get the nearest note
-    return config.freq2note[fs[min_idx]]
+    return freq2note[fs[min_idx]]
   else:
     # if freq = 0
     return 'N'
@@ -22,7 +22,7 @@ def round_note(freq):
 
 def get_note_ratio(note, target_notes):
   # get_note_ratio: get ratios between chord notes' and rounded note
-  notes = list(config.note2freq.keys())
+  notes = list(note2freq.keys())
   f, s, t = target_notes
   i = notes.index(note)
   def ratio(x): return 2 ** (x / 12)
@@ -34,14 +34,14 @@ def get_note_ratio(note, target_notes):
 
 def get_target_keys(note, lab):
   # get_target_keys: get target notes from chord key & rounded note
-  # assumes target frequency has the same octave with the rounded note
-  # 옥타브가 바뀌어서인지 음이 계속 바뀌는 경우가 계속 생김
   if note == 'N' or lab == 'N':
     return (0.0, 0.0, 0.0)  # no chord
-  octave = note[-1]
   # check minor/major and get corresponding notes
-  f, s, t = config.minor_triad[lab] if 'min' in lab else config.major_triad[lab]
-  return get_note_ratio(note, (f+octave, s+octave, t+octave))
+  f, s, t = minor_triad[lab] if 'min' in lab else major_triad[lab]
+  o_f = note[-1]
+  o_s = o_f if note2freq[f + o_f] < note2freq[s+o_f] else str(int(o_f)+1)
+  o_t = o_s if note2freq[s + o_s] < note2freq[t+o_s] else str(int(o_s)+1)
+  return get_note_ratio(note, (f+o_f, s+o_s, t+o_t))
 
 
 def get_idx_and_note(data):
@@ -52,7 +52,7 @@ def get_idx_and_note(data):
   for i, frame in enumerate(data):
     sample_idx = i * p.hop_size  # sample index
     note = round_note(p(frame)[0])  # dominant note (corrected pitch)
-    print('\r%.2f%%' % (i/len(data)*100), end="")
+    print('\r%.2f%%' % ((i+1)/len(data)*100), end="")
     if note != note_prev:
       idx_and_notes.append((sample_idx, note))
       note_prev = note
@@ -78,25 +78,32 @@ def get_label(name, sr):
 def mix_data(idx_and_notes, label, sr):
   idx_and_notes = [(idx, note, "N") for (idx, note) in idx_and_notes]
   label = [(i, "N", lab) for (i, lab) in label]
-  mixed_data = sorted(idx_and_notes + label)
-  for i, (_, note, lab) in enumerate(mixed_data):
-    if i >= 0:
+  # merge sort
+  m_data = sorted(idx_and_notes + label)
+  # interpolation
+  for i, (_, note, lab) in enumerate(m_data):
+    if i > 0:
       if note == "N":
-        mixed_data[i] = (mixed_data[i][0], mixed_data[i-1]
-                         [1], mixed_data[i][2])
+        m_data[i] = (m_data[i][0], m_data[i-1][1], m_data[i][2])
       elif lab == "N":
-        mixed_data[i] = (mixed_data[i][0], mixed_data[i]
-                         [1], mixed_data[i-1][2])
-
+        m_data[i] = (m_data[i][0], m_data[i][1], m_data[i-1][2])
+  # some corrections for detected pitch
+  for i, (_, note, lab) in enumerate(m_data):
+    if i > 0 and m_data[i-1][1] != 'N':
+      freq_p = note2freq[m_data[i-1][1]]
+      freq = note2freq[note]
+      offset = 2 ** (9 / 12)
+      if not ((freq_p/offset < freq) and (freq < freq_p*offset)):
+        m_data[i] = (m_data[i][0], m_data[i-1][1], m_data[i][2])
+  # set intervals larger than the minimun
   res = []
   MIN_INTERVAL = int(np.floor(0.03 * sr))
-  for i, (idx, _, _) in enumerate(mixed_data):
+  for i, (idx, _, _) in enumerate(m_data):
     interval = 0
-    if i != len(mixed_data)-1:
-      interval = mixed_data[i+1][0]-idx
+    if i != len(m_data)-1:
+      interval = m_data[i+1][0]-idx
     if MIN_INTERVAL < interval:
-      res.append(mixed_data[i])
-
+      res.append(m_data[i])
   return res
 
 
@@ -105,7 +112,7 @@ def get_chord_data(y, sr, ratios):
   end = len(ratios)-1
   print("chording...")
   for i, (idx, (f, s, t)) in enumerate(ratios):
-    print('\r%.2f%%' % (i/len(ratios)*100), end="")
+    print('\r%.2f%%' % ((i+1)/len(ratios)*100), end="")
     data = None
     if i != end:
       data = y[idx:ratios[i+1][0]]
@@ -113,7 +120,7 @@ def get_chord_data(y, sr, ratios):
     else:
       data = y[idx:y.shape[0]]
     if f == 0.0 and s == 0.0 and t == 0.0:
-      res = np.concatenate((res, data*3))
+      res = np.concatenate((res, data))
     else:
       f = shift_pitch(data, sr, f)
       s = shift_pitch(data, sr, s)
@@ -124,12 +131,12 @@ def get_chord_data(y, sr, ratios):
         s = np.append(s, s[-1])
       if len(t) < len(data):
         t = np.append(t, t[-1])
-      res = np.concatenate((res, (f+s+t)))
+      res = np.concatenate((res, (data+f+s+t)))
   return res
 
 
 if __name__ == '__main__':
-  name = 'ㅈㅅㅁㅇㄴ'
+  name = 'test'
   # load data
   # y, sr = sf.read(name+'.wav')
   y, sr = librosa.load(name+'.wav')
