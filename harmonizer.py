@@ -2,6 +2,7 @@ import numpy as np
 import aubio
 import librosa
 from config import note2freq, freq2note, minor_triad, major_triad
+from pydub import AudioSegment
 # import soundfile as sf
 
 from pitch_shift import shift_pitch
@@ -41,6 +42,7 @@ def get_target_keys(note, lab):
   o_f = note[-1]
   o_s = o_f if note2freq[f + o_f] < note2freq[s+o_f] else str(int(o_f)+1)
   o_t = o_s if note2freq[s + o_s] < note2freq[t+o_s] else str(int(o_s)+1)
+  print(note, (f+o_f, s+o_s, t+o_t))
   return get_note_ratio(note, (f+o_f, s+o_s, t+o_t))
 
 
@@ -136,9 +138,10 @@ def get_chord_data(y, sr, ratios):
 
 
 if __name__ == '__main__':
-  name = 'test'
+  name = '도'
   # load data
-  # y, sr = sf.read(name+'.wav')
+  y = AudioSegment.from_file(name+'.m4a', 'm4a')
+  y.export(name+'.wav', format='wav')
   y, sr = librosa.load(name+'.wav')
   label = get_label(name, sr)
   # create pitch object (for pitch detection)
@@ -152,6 +155,8 @@ if __name__ == '__main__':
   y_padded = y_padded.astype(aubio.float_type)
   # get sample index and note from original song
   idx_and_notes = get_idx_and_note(data=y_padded)
+  for (i, n) in idx_and_notes:
+    print(i/sr, n)
   # get mixed data
   mixed_data = mix_data(idx_and_notes, label, sr)
   # get corresponding chord ratios from chord label
@@ -159,11 +164,5 @@ if __name__ == '__main__':
             for (idx, note, lab) in mixed_data]
   # get chord data
   chord_data = get_chord_data(y, sr, ratios)
-
-  # sf.write('./'+name+'_t.wav', chord_data, sr)
+  # write result
   librosa.output.write_wav(name+"_t.wav", chord_data, sr)
-
-  # new_signal = shift_pitch(orig_signal, sr, f_ratio)
-
-  # librosa.output.write_wav(
-  #    name+"_{:01.2f}.wav".format(f_ratio), new_signal, sr)

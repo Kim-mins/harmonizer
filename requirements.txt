@@ -2,3 +2,4 @@ librosa
 aubio
 numpy
 scipy
+pydub
