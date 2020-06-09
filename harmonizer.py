@@ -46,7 +46,7 @@ def get_target_keys(note, lab):
   return get_note_ratio(note, (f+o_f, s+o_s, t+o_t))
 
 
-def get_idx_and_note(data):
+def get_idx_and_note(data, p):
   # get_idx_and_note: result of tracking index and note of original song
   idx_and_notes = []
   note_prev = ''
@@ -64,6 +64,7 @@ def get_idx_and_note(data):
 
 def get_label(name, sr):
   # get_label: get label from .lab file
+  name = name.split(".")[0]
   lab = []
   with open(name+".lab", "r") as f:
     while True:
@@ -137,12 +138,11 @@ def get_chord_data(y, sr, ratios):
   return res
 
 
-if __name__ == '__main__':
-  name = '도'
+def harmonize(name):
   # load data
-  y = AudioSegment.from_file(name+'.m4a', 'm4a')
-  y.export(name+'.wav', format='wav')
-  y, sr = librosa.load(name+'.wav')
+  # y = AudioSegment.from_file(name+'.m4a', 'm4a')
+  # y.export(name+'.wav', format='wav')
+  y, sr = librosa.load(name)
   label = get_label(name, sr)
   # create pitch object (for pitch detection)
   p = aubio.pitch("default", samplerate=sr)
@@ -154,7 +154,7 @@ if __name__ == '__main__':
   # input array should be of type aubio.float_type (defaults to float32)
   y_padded = y_padded.astype(aubio.float_type)
   # get sample index and note from original song
-  idx_and_notes = get_idx_and_note(data=y_padded)
+  idx_and_notes = get_idx_and_note(y_padded, p)
   for (i, n) in idx_and_notes:
     print(i/sr, n)
   # get mixed data
@@ -165,4 +165,4 @@ if __name__ == '__main__':
   # get chord data
   chord_data = get_chord_data(y, sr, ratios)
   # write result
-  librosa.output.write_wav(name+"_t.wav", chord_data, sr)
+  librosa.output.write_wav(name.split(".")[0]+"_t.wav", chord_data, sr)
